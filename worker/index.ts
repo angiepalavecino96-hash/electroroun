@@ -48,7 +48,10 @@ const worker = {
       }
 
       try {
-        const resultado = await ejecutarSincronizacionSegura(env);
+        const resultado = await ejecutarSincronizacionSegura({
+          ...env,
+          SUPABASE_URL: "https://bbacudythwqsnxhjfvpy.supabase.co",
+        });
         return Response.json(resultado, {
           headers: { "cache-control": "no-store" },
         });
@@ -83,7 +86,10 @@ const worker = {
     );
 
     try {
-      const resultado = await ejecutarSincronizacionSegura(env);
+      const resultado = await ejecutarSincronizacionSegura({
+        ...env,
+        SUPABASE_URL: "https://bbacudythwqsnxhjfvpy.supabase.co",
+      });
       console.log(`ELECTRO_ROUN_CRON_OK ${JSON.stringify(resultado)}`);
     } catch (error) {
       console.error(
