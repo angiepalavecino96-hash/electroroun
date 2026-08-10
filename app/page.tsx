@@ -57,6 +57,14 @@ export default function Home() {
   const [editOutOfStock, setEditOutOfStock] = useState(false);
   const [editHidden, setEditHidden] = useState(false);
   const [editStatus, setEditStatus] = useState("");
+  const [newProductOpen, setNewProductOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newCategory, setNewCategory] = useState("📦 Otros");
+  const [newCost, setNewCost] = useState(0);
+  const [newPrice, setNewPrice] = useState(0);
+  const [newStock, setNewStock] = useState(1);
+  const [newImage, setNewImage] = useState<File | null>(null);
+  const [newStatus, setNewStatus] = useState("");
   const [consultProduct, setConsultProduct] = useState<ReturnType<typeof normalize> | null>(null);
 
   useEffect(() => {
@@ -156,6 +164,25 @@ export default function Home() {
     setEditStatus("");
   }
 
+  async function createManualProduct() {
+    setNewStatus("Guardando producto…");
+    const form = new FormData();
+    form.set("action", "create");
+    form.set("name", newName);
+    form.set("category", newCategory);
+    form.set("cost", String(newCost));
+    form.set("price", String(newPrice));
+    form.set("stock", String(newStock));
+    if (newImage) form.set("image", newImage);
+    const response = await fetch("/api/admin/products", { method: "POST", body: form });
+    const data = await response.json();
+    if (!response.ok) { setNewStatus(data.error || "No se pudo guardar"); return; }
+    const created = normalize(data.product);
+    setProducts(current => [created, ...current]);
+    setNewProductOpen(false);
+    setNewName(""); setNewCategory("📦 Otros"); setNewCost(0); setNewPrice(0); setNewStock(1); setNewImage(null); setNewStatus("");
+  }
+
   const categories = useMemo(() => ["Todos", ...Array.from(new Set(products.filter(p => session.role === "admin" || p.visible).map(p => p.category).filter(Boolean))).sort()], [products, session.role]);
   const filtered = useMemo(() => products.filter(p => (session.role === "admin" || p.visible) && (category === "Todos" || p.category === category) && p.name.toLowerCase().includes(query.toLowerCase())).slice(0, 60), [products, query, category, session.role]);
   const cash = session.role === "admin" ? salePrice(cost || 0) : round500(sellerCash || 0);
@@ -183,7 +210,7 @@ export default function Home() {
         </section>
         <section className="benefits"><span>⚡ Actualización automática</span><span>🛡️ Compra segura</span><span>🚚 Envíos a domicilio</span><span>💳 Hasta 6 cuotas</span></section>
         <section id="catalog" className="catalog">
-          <div className="section-head"><div><span className="eyebrow">NUESTRO CATÁLOGO</span><h2>Encontrá lo que necesitás</h2></div><label>⌕<input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar producto..." /></label></div>
+          <div className="section-head"><div><span className="eyebrow">NUESTRO CATÁLOGO</span><h2>Encontrá lo que necesitás</h2></div><div className="catalog-actions">{session.role === "admin" && <button onClick={() => setNewProductOpen(true)}>+ Agregar producto manual</button>}<label>⌕<input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar producto..." /></label></div></div>
           {!loading && products.length > 0 && <div className="categories" aria-label="Categorías de productos">{categories.map(c => <button key={c} className={category === c ? "selected" : ""} onClick={() => setCategory(c)}>{c}</button>)}</div>}
           {loading ? <div className="status">Actualizando productos…</div> : filtered.length ? <div className="grid">{filtered.map(p => <article key={p.id} className={`card${!p.visible ? " card-disabled" : ""}`}><div className="photo">{p.image ? <img src={p.image} alt={p.name}/> : <span>ER</span>}</div><small>{p.category}</small><h3>{p.name}</h3>{session.role === "admin" && !p.visible && <span className="stock-badge">{p.outOfStock ? "SIN STOCK" : "OCULTO"}</span>}<b>{p.price ? money(p.price) : "Consultar"}</b><p>{p.price ? `6 cuotas de ${money(round500(p.price * 1.8 / 6))}` : "Pedinos información"}</p><button onClick={() => setDetailProduct(p)}>Ver precio y cuotas</button>{session.role === "admin" && <button className="admin-edit" onClick={() => beginEdit(p)}>Editar producto</button>}</article>)}</div> : <div className="status">No hay productos en esta categoría o búsqueda.</div>}
         </section>
@@ -192,6 +219,8 @@ export default function Home() {
       {detailProduct && <div className="modal-backdrop" onClick={() => setDetailProduct(null)}><div className="product-modal" role="dialog" aria-modal="true" aria-label={`Detalle de ${detailProduct.name}`} onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setDetailProduct(null)}>×</button><div className="product-modal-photo">{detailProduct.image ? <img src={detailProduct.image} alt={detailProduct.name}/> : <span>ER</span>}</div><div className="product-modal-info"><span className="eyebrow">{detailProduct.category}</span><h2>{detailProduct.name}</h2>{detailProduct.price ? <><div className="detail-cash"><small>PRECIO CONTADO</small><strong>{money(detailProduct.price)}</strong></div><div className="detail-installments">{[2,4,6].map(n => { const factor = n === 2 ? 1.15 : n === 4 ? 1.55 : 1.8; return <div key={n}><b>{n} cuotas</b><strong>{money(round500(detailProduct.price * factor / n))}</strong><small>cada una</small></div> })}</div></> : <p>Consultanos para conocer el precio.</p>}{session.authenticated ? <><button className="detail-whatsapp" onClick={() => shareWhatsApp(detailProduct)}>Compartir por WhatsApp</button><button className="detail-plate" onClick={() => useProductForPlate(detailProduct)}>Usar en generador de placas</button><small className="detail-note">El generador copiará el nombre y el costo automáticamente.</small></> : <><button className="detail-whatsapp" onClick={() => { setConsultProduct(detailProduct); setDetailProduct(null); }}>Consultar por WhatsApp</button><small className="detail-note">Elegís con quién hablar en el siguiente paso.</small></>}</div></div></div>}
 
       {editProduct && session.role === "admin" && <div className="modal-backdrop" onClick={() => setEditProduct(null)}><div className="admin-modal" role="dialog" aria-modal="true" aria-label={`Editar ${editProduct.name}`} onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setEditProduct(null)}>×</button><span className="eyebrow">PANEL DE ADMINISTRACIÓN</span><h2>{editProduct.name}</h2><div className="admin-metadata"><div><small>PROVEEDOR</small><b>{editProduct.provider}</b></div><div><small>STOCK INFORMADO</small><b>{editProduct.stock} unidades</b></div><div><small>ORIGEN</small><b>{editProduct.automatic ? "Automático" : "Manual"}</b></div></div><div className="admin-price-grid"><label className="field">Precio de costo<input type="number" value={editCost} onChange={e => setEditCost(Number(e.target.value))}/></label><label className="field">Precio contado<input type="number" value={editPrice} onChange={e => setEditPrice(Number(e.target.value))}/></label></div><label className="image-picker"><span>{editImage ? editImage.name : "Reemplazar imagen"}</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setEditImage(e.target.files?.[0] || null)}/></label>{!editProduct.automatic && <div className="manual-controls"><label><input type="checkbox" checked={editOutOfStock} onChange={e => setEditOutOfStock(e.target.checked)}/><span><b>Marcar sin stock</b><small>Deja de mostrarse en el catálogo público.</small></span></label><label><input type="checkbox" checked={editHidden} onChange={e => setEditHidden(e.target.checked)}/><span><b>Ocultar producto</b><small>Solo seguirá visible para administradores.</small></span></label></div>}{editStatus && <p className="edit-status">{editStatus}</p>}<button className="primary" onClick={saveProduct}>Guardar cambios</button><small className="admin-note">Los cambios manuales se conservarán en las próximas actualizaciones.</small></div></div>}
+
+      {newProductOpen && session.role === "admin" && <div className="modal-backdrop" onClick={() => setNewProductOpen(false)}><div className="admin-modal" role="dialog" aria-modal="true" aria-label="Agregar producto manual" onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setNewProductOpen(false)}>×</button><span className="eyebrow">NUEVO PRODUCTO MANUAL</span><h2>Agregar al catálogo</h2><label className="field">Nombre del producto<input value={newName} onChange={e => setNewName(e.target.value)}/></label><label className="field">Categoría<select value={newCategory} onChange={e => setNewCategory(e.target.value)}>{categories.filter(item => item !== "Todos").map(item => <option key={item}>{item}</option>)}{!categories.includes("📦 Otros") && <option>📦 Otros</option>}</select></label><div className="admin-price-grid"><label className="field">Precio de costo<input type="number" value={newCost} onChange={e => { const value = Number(e.target.value); setNewCost(value); setNewPrice(salePrice(value || 0)); }}/></label><label className="field">Precio contado calculado<input type="number" value={newPrice} onChange={e => setNewPrice(Number(e.target.value))}/></label></div><div className="manual-calculation"><small>CUOTAS CALCULADAS</small><div><span>2 cuotas</span><b>{money(round500(newPrice * 1.15 / 2))}</b></div><div><span>4 cuotas</span><b>{money(round500(newPrice * 1.55 / 4))}</b></div><div><span>6 cuotas</span><b>{money(round500(newPrice * 1.8 / 6))}</b></div></div><label className="field">Stock disponible<input type="number" min="0" value={newStock} onChange={e => setNewStock(Number(e.target.value))}/></label><label className="image-picker"><span>{newImage ? newImage.name : "Agregar imagen (opcional)"}</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setNewImage(e.target.files?.[0] || null)}/></label>{newStatus && <p className="edit-status">{newStatus}</p>}<button className="primary" onClick={createManualProduct}>Guardar producto manual</button></div></div>}
 
       {consultProduct && <div className="modal-backdrop" onClick={() => setConsultProduct(null)}><div className="contact-modal" onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setConsultProduct(null)}>×</button><img src="/electro-roun-logo.png" alt="Electro Roun"/><span className="eyebrow">CONSULTAR PRODUCTO</span><h2>{consultProduct.name}</h2><p>Elegí con quién querés hablar:</p><button onClick={() => openWhatsApp("5491172356230")}>Consultar con Marce</button><button onClick={() => openWhatsApp("5492271418941")}>Consultar con Cori</button><button className="seller-choice" onClick={() => openWhatsApp()}>Consultar con tu vendedor</button><small>WhatsApp se abrirá con el mensaje del producto preparado.</small></div></div>}
 
