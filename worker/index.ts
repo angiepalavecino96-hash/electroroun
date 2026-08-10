@@ -1,6 +1,8 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+// @ts-expect-error Runtime JavaScript module for provider synchronization.
+import { ejecutarSincronizacionSegura } from "../src/proveedores-sync.mjs";
 
 interface Env {
   ASSETS: Fetcher;
@@ -12,6 +14,9 @@ interface Env {
       };
     };
   };
+  SUPABASE_URL: string;
+  SUPABASE_SECRET_KEY: string;
+  DOLAR_PROVEEDORES?: string;
 }
 
 interface ExecutionContext {
@@ -41,6 +46,10 @@ const worker = {
     }
 
     return handler.fetch(request, env, ctx);
+  },
+
+  async scheduled(_controller: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(ejecutarSincronizacionSegura(env));
   },
 };
 
