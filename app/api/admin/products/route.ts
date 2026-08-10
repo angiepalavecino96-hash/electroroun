@@ -19,15 +19,20 @@ export async function POST(request: Request) {
 
   try {
     const form = await request.formData();
-    const id = String(form.get("id") || "");
+    const action = String(form.get("action") || "edit");
+    let id = String(form.get("id") || "");
+    const name = String(form.get("name") || "").trim();
+    const category = String(form.get("category") || "📦 Otros").trim();
     const cost = Number(form.get("cost"));
     const price = Number(form.get("price"));
+    const stock = Math.max(0, Math.round(Number(form.get("stock")) || 0));
     const outOfStock = String(form.get("outOfStock")) === "true";
     const hidden = String(form.get("hidden")) === "true";
     const image = form.get("image");
-    if (!id || !Number.isFinite(cost) || cost < 0 || !Number.isFinite(price) || price <= 0) {
+    if ((action !== "create" && !id) || !Number.isFinite(cost) || cost < 0 || !Number.isFinite(price) || price <= 0) {
       return Response.json({ error: "Costo, precio o producto inválido" }, { status: 400 });
     }
+    if (action === "create" && !name) return Response.json({ error: "Falta el nombre del producto" }, { status: 400 });
 
     const catalogResponse = await fetch(`${SUPABASE_URL}/rest/v1/tienda_catalogo?id=eq.catalogo&select=datos`, {
       headers: serviceHeaders(),
@@ -35,15 +40,32 @@ export async function POST(request: Request) {
     if (!catalogResponse.ok) throw new Error("No se pudo leer el catálogo");
     const rows = await catalogResponse.json();
     const products = Array.isArray(rows?.[0]?.datos) ? rows[0].datos : [];
-    const product = products.find((item: Record<string, unknown>) => String(item.id) === id);
-    if (!product) return Response.json({ error: "Producto no encontrado" }, { status: 404 });
+    let product: Record<string, any>;
+    if (action === "create") {
+      id = `manual-${crypto.randomUUID()}`;
+      product = {
+        id,
+        nombre: name,
+        categoria: category,
+        automaticoProveedor: false,
+        proveedor: "Carga manual",
+        stock,
+        visible: stock > 0,
+        sinStock: stock <= 0,
+        creado: new Date().toISOString(),
+      };
+      products.unshift(product);
+    } else {
+      product = products.find((item: Record<string, unknown>) => String(item.id) === id);
+      if (!product) return Response.json({ error: "Producto no encontrado" }, { status: 404 });
+    }
 
     product.costoManualProveedor = Math.round(cost);
     product.costo = product.costoManualProveedor;
     product.ventaManualProveedor = Math.round(price / 500) * 500;
     product.venta = product.ventaManualProveedor;
 
-    if (product.automaticoProveedor !== true) {
+    if (product.automaticoProveedor !== true && action !== "create") {
       product.sinStock = outOfStock;
       product.ocultoManualProducto = hidden;
       product.visible = !outOfStock && !hidden;
