@@ -17,7 +17,6 @@ interface Env {
   SUPABASE_URL: string;
   SUPABASE_SECRET_KEY: string;
   DOLAR_PROVEEDORES?: string;
-  SESSION_SECRET: string;
 }
 
 interface ExecutionContext {
@@ -34,34 +33,6 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-
-    if (url.pathname === "/api/carga-inicial-er-8f4c2a91") {
-      if (request.method === "GET") {
-        return new Response(
-          `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Carga inicial Electro Roun</title><body style="font-family:Arial;max-width:520px;margin:60px auto;padding:24px;background:#07172b;color:white"><h1>Carga inicial Electro Roun</h1><p>Este botón ejecuta una única actualización inmediata desde los proveedores.</p><form method="post"><button style="padding:12px 18px;background:#e7ad2b;border:0;font-weight:bold">Cargar productos ahora</button></form></body></html>`,
-          { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
-        );
-      }
-
-      if (request.method !== "POST") {
-        return new Response("Método no permitido", { status: 405 });
-      }
-
-      try {
-        const resultado = await ejecutarSincronizacionSegura({
-          ...env,
-          SUPABASE_URL: "https://bbacudythwqsnxhjfvpy.supabase.co",
-        });
-        return Response.json(resultado, {
-          headers: { "cache-control": "no-store" },
-        });
-      } catch (error) {
-        return Response.json(
-          { ok: false, error: String(error instanceof Error ? error.message : error) },
-          { status: 500, headers: { "cache-control": "no-store" } },
-        );
-      }
-    }
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
@@ -89,6 +60,7 @@ const worker = {
       const resultado = await ejecutarSincronizacionSegura({
         ...env,
         SUPABASE_URL: "https://bbacudythwqsnxhjfvpy.supabase.co",
+        DOLAR_PROVEEDORES: "1570",
       });
       console.log(`ELECTRO_ROUN_CRON_OK ${JSON.stringify(resultado)}`);
     } catch (error) {
