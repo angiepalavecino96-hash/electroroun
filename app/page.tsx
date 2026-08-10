@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Product = { id?: string | number; nombre?: string; name?: string; precio?: number; costo?: number; foto?: string; imagen?: string; categoria?: string; visible?: boolean; sinStock?: boolean; automaticoProveedor?: boolean };
+type Product = { id?: string | number; nombre?: string; name?: string; ventaManualProveedor?: number; venta?: number; precio?: number; costo?: number; fotoManualProveedor?: string; foto?: string; imagen?: string; categoria?: string; visible?: boolean; sinStock?: boolean; automaticoProveedor?: boolean; proveedor?: string; proveedorStock?: number; stock?: number };
 type View = "catalogo" | "calculadora" | "placas" | "acceso";
 type Session = { authenticated: boolean; role?: "vendedor" | "admin"; name?: string };
 
@@ -17,13 +17,16 @@ const salePrice = (cost: number) => {
 };
 
 function normalize(raw: Product) {
-  const base = Number(raw.precio ?? raw.costo ?? 0);
+  const base = Number(raw.ventaManualProveedor ?? raw.venta ?? raw.precio ?? raw.costo ?? 0);
   return {
     id: String(raw.id ?? raw.nombre ?? raw.name ?? Math.random()),
     name: String(raw.nombre ?? raw.name ?? "Producto"),
     price: base,
-    image: raw.automaticoProveedor ? (raw.foto ?? raw.imagen ?? "") : "",
+    image: raw.fotoManualProveedor ?? raw.foto ?? raw.imagen ?? "",
     category: raw.categoria ?? "Hogar",
+    provider: raw.proveedor ?? (raw.automaticoProveedor ? "Proveedor automático" : "Carga manual"),
+    stock: Number(raw.proveedorStock ?? raw.stock ?? 0),
+    automatic: raw.automaticoProveedor === true,
     visible: raw.visible !== false && raw.sinStock !== true,
   };
 }
@@ -41,6 +44,11 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [session, setSession] = useState<Session>({ authenticated: false });
   const [loginError, setLoginError] = useState("");
+  const [detailProduct, setDetailProduct] = useState<ReturnType<typeof normalize> | null>(null);
+  const [editProduct, setEditProduct] = useState<ReturnType<typeof normalize> | null>(null);
+  const [editPrice, setEditPrice] = useState(0);
+  const [editImage, setEditImage] = useState<File | null>(null);
+  const [editStatus, setEditStatus] = useState("");
   const [consultProduct, setConsultProduct] = useState<ReturnType<typeof normalize> | null>(null);
 
   useEffect(() => {
@@ -79,14 +87,46 @@ export default function Home() {
   }
 
   function whatsappMessage(product: ReturnType<typeof normalize>) {
-    const price = product.price ? `\nPrecio: ${money(product.price)}\n6 cuotas de ${money(round500(product.price * 1.8 / 6))}` : "";
+    const price = product.price ? `\nPrecio contado: ${money(product.price)}\n2 cuotas de ${money(round500(product.price * 1.15 / 2))}\n4 cuotas de ${money(round500(product.price * 1.55 / 4))}\n6 cuotas de ${money(round500(product.price * 1.8 / 6))}` : "";
     return `Hola, quiero consultar por este producto de Electro Roun:\n${product.name}${price}`;
+  }
+
+  function shareMessage(product: ReturnType<typeof normalize>) {
+    const prices = product.price ? `\n\n💵 Contado: ${money(product.price)}\n💳 2 cuotas de ${money(round500(product.price * 1.15 / 2))}\n💳 4 cuotas de ${money(round500(product.price * 1.55 / 4))}\n💳 6 cuotas de ${money(round500(product.price * 1.8 / 6))}` : "";
+    return `⚡ ELECTRO ROUN ⚡\n${product.name}${prices}\n\n🚚 Envíos a domicilio\nConsultanos por disponibilidad.`;
   }
 
   function openWhatsApp(phone?: string) {
     if (!consultProduct) return;
     const target = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(whatsappMessage(consultProduct))}` : `https://wa.me/?text=${encodeURIComponent(whatsappMessage(consultProduct))}`;
     window.open(target, "_blank", "noopener,noreferrer");
+  }
+
+  function shareWhatsApp(product: ReturnType<typeof normalize>) {
+    window.open(`https://wa.me/?text=${encodeURIComponent(shareMessage(product))}`, "_blank", "noopener,noreferrer");
+  }
+
+  function beginEdit(product: ReturnType<typeof normalize>) {
+    setEditProduct(product);
+    setEditPrice(product.price);
+    setEditImage(null);
+    setEditStatus("");
+  }
+
+  async function saveProduct() {
+    if (!editProduct) return;
+    setEditStatus("Guardando cambios…");
+    const form = new FormData();
+    form.set("id", editProduct.id);
+    form.set("price", String(editPrice));
+    if (editImage) form.set("image", editImage);
+    const response = await fetch("/api/admin/products", { method: "POST", body: form });
+    const data = await response.json();
+    if (!response.ok) { setEditStatus(data.error || "No se pudo guardar"); return; }
+    const updated = normalize(data.product);
+    setProducts(current => current.map(product => product.id === updated.id ? updated : product));
+    setEditProduct(null);
+    setEditStatus("");
   }
 
   const categories = useMemo(() => ["Todos", ...Array.from(new Set(products.map(p => p.category).filter(Boolean))).sort()], [products]);
@@ -117,9 +157,13 @@ export default function Home() {
         <section id="catalog" className="catalog">
           <div className="section-head"><div><span className="eyebrow">NUESTRO CATÁLOGO</span><h2>Encontrá lo que necesitás</h2></div><label>⌕<input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar producto..." /></label></div>
           {!loading && products.length > 0 && <div className="categories" aria-label="Categorías de productos">{categories.map(c => <button key={c} className={category === c ? "selected" : ""} onClick={() => setCategory(c)}>{c}</button>)}</div>}
-          {loading ? <div className="status">Actualizando productos…</div> : filtered.length ? <div className="grid">{filtered.map(p => <article key={p.id} className="card"><div className="photo">{p.image ? <img src={p.image} alt={p.name}/> : <span>ER</span>}</div><small>{p.category}</small><h3>{p.name}</h3><b>{p.price ? money(p.price) : "Consultar"}</b><p>{p.price ? `6 cuotas de ${money(round500(p.price * 1.8 / 6))}` : "Pedinos información"}</p><button onClick={() => setConsultProduct(p)}>Consultar por WhatsApp</button></article>)}</div> : <div className="status">No hay productos en esta categoría o búsqueda.</div>}
+          {loading ? <div className="status">Actualizando productos…</div> : filtered.length ? <div className="grid">{filtered.map(p => <article key={p.id} className="card"><div className="photo">{p.image ? <img src={p.image} alt={p.name}/> : <span>ER</span>}</div><small>{p.category}</small><h3>{p.name}</h3><b>{p.price ? money(p.price) : "Consultar"}</b><p>{p.price ? `6 cuotas de ${money(round500(p.price * 1.8 / 6))}` : "Pedinos información"}</p><button onClick={() => setDetailProduct(p)}>Ver precio y cuotas</button>{session.role === "admin" && <button className="admin-edit" onClick={() => beginEdit(p)}>Editar producto</button>}</article>)}</div> : <div className="status">No hay productos en esta categoría o búsqueda.</div>}
         </section>
       </>}
+
+      {detailProduct && <div className="modal-backdrop" onClick={() => setDetailProduct(null)}><div className="product-modal" role="dialog" aria-modal="true" aria-label={`Detalle de ${detailProduct.name}`} onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setDetailProduct(null)}>×</button><div className="product-modal-photo">{detailProduct.image ? <img src={detailProduct.image} alt={detailProduct.name}/> : <span>ER</span>}</div><div className="product-modal-info"><span className="eyebrow">{detailProduct.category}</span><h2>{detailProduct.name}</h2>{detailProduct.price ? <><div className="detail-cash"><small>PRECIO CONTADO</small><strong>{money(detailProduct.price)}</strong></div><div className="detail-installments">{[2,4,6].map(n => { const factor = n === 2 ? 1.15 : n === 4 ? 1.55 : 1.8; return <div key={n}><b>{n} cuotas</b><strong>{money(round500(detailProduct.price * factor / n))}</strong><small>cada una</small></div> })}</div></> : <p>Consultanos para conocer el precio.</p>}{session.authenticated ? <><button className="detail-whatsapp" onClick={() => shareWhatsApp(detailProduct)}>Compartir por WhatsApp</button><small className="detail-note">Se abrirá WhatsApp con la publicación y las cuotas preparadas.</small></> : <><button className="detail-whatsapp" onClick={() => { setConsultProduct(detailProduct); setDetailProduct(null); }}>Consultar por WhatsApp</button><small className="detail-note">Elegís con quién hablar en el siguiente paso.</small></>}</div></div></div>}
+
+      {editProduct && session.role === "admin" && <div className="modal-backdrop" onClick={() => setEditProduct(null)}><div className="admin-modal" role="dialog" aria-modal="true" aria-label={`Editar ${editProduct.name}`} onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setEditProduct(null)}>×</button><span className="eyebrow">PANEL DE ADMINISTRACIÓN</span><h2>{editProduct.name}</h2><div className="admin-metadata"><div><small>PROVEEDOR</small><b>{editProduct.provider}</b></div><div><small>STOCK INFORMADO</small><b>{editProduct.stock} unidades</b></div><div><small>ORIGEN</small><b>{editProduct.automatic ? "Automático" : "Manual"}</b></div></div><label className="field">Precio de venta contado<input type="number" value={editPrice} onChange={e => setEditPrice(Number(e.target.value))}/></label><label className="field">Reemplazar fotografía<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setEditImage(e.target.files?.[0] || null)}/></label>{editStatus && <p className="edit-status">{editStatus}</p>}<button className="primary" onClick={saveProduct}>Guardar cambios</button><small className="admin-note">El precio y la foto elegidos manualmente se conservarán en las próximas actualizaciones.</small></div></div>}
 
       {consultProduct && <div className="modal-backdrop" onClick={() => setConsultProduct(null)}><div className="contact-modal" onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setConsultProduct(null)}>×</button><img src="/electro-roun-logo.png" alt="Electro Roun"/><span className="eyebrow">CONSULTAR PRODUCTO</span><h2>{consultProduct.name}</h2><p>Elegí con quién querés hablar:</p><button onClick={() => openWhatsApp("5491172356230")}>Consultar con Marce</button><button onClick={() => openWhatsApp("5492271418941")}>Consultar con Cori</button><button className="seller-choice" onClick={() => openWhatsApp()}>Consultar con tu vendedor</button><small>WhatsApp se abrirá con el mensaje del producto preparado.</small></div></div>}
 
