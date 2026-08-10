@@ -6,8 +6,8 @@ type Product = { id?: string | number; nombre?: string; name?: string; precio?: 
 type View = "catalogo" | "calculadora" | "placas" | "acceso";
 type Session = { authenticated: boolean; role?: "vendedor" | "admin"; name?: string };
 
-const SB_URL = "https://zctaukyrhsmpjkcddcqq.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpjdGF1a3lyaHNtcGprY2RkY3FxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4MzQ0ODAsImV4cCI6MjA5NzQxMDQ4MH0.lxhPH9bASIV__jETAwYZvoJmSpk0Q32CJl9tSlQeLdA";
+const SB_URL = "https://bbacudythwqsnxhjfvpy.supabase.co";
+const SB_KEY = "sb_publishable_r6IfEyk1BrAOpJMMaPMElg_IufJItdN";
 
 const money = (n: number) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n);
 const round500 = (n: number) => Math.round(n / 500) * 500;
