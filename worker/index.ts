@@ -17,6 +17,7 @@ interface Env {
   SUPABASE_URL: string;
   SUPABASE_SECRET_KEY: string;
   DOLAR_PROVEEDORES?: string;
+  SESSION_SECRET: string;
 }
 
 interface ExecutionContext {
@@ -33,6 +34,37 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/api/sincronizar-ahora") {
+      if (request.method === "GET") {
+        return new Response(
+          `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Sincronizar Electro Roun</title><body style="font-family:Arial;max-width:520px;margin:60px auto;padding:24px;background:#07172b;color:white"><h1>Sincronizar Electro Roun</h1><p>Ingresá la clave SESSION_SECRET para ejecutar una actualización inmediata.</p><form method="post"><input name="token" type="password" required style="width:100%;box-sizing:border-box;padding:12px;margin:12px 0"><button style="padding:12px 18px;background:#e7ad2b;border:0;font-weight:bold">Sincronizar ahora</button></form></body></html>`,
+          { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
+        );
+      }
+
+      if (request.method !== "POST") {
+        return new Response("Método no permitido", { status: 405 });
+      }
+
+      const form = await request.formData();
+      const token = String(form.get("token") || "");
+      if (!env.SESSION_SECRET || token !== env.SESSION_SECRET) {
+        return new Response("Clave incorrecta", { status: 401 });
+      }
+
+      try {
+        const resultado = await ejecutarSincronizacionSegura(env);
+        return Response.json(resultado, {
+          headers: { "cache-control": "no-store" },
+        });
+      } catch (error) {
+        return Response.json(
+          { ok: false, error: String(error instanceof Error ? error.message : error) },
+          { status: 500, headers: { "cache-control": "no-store" } },
+        );
+      }
+    }
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
@@ -70,5 +102,4 @@ const worker = {
   },
 };
 
-export default worker;
 export default worker;
