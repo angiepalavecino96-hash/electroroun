@@ -20,10 +20,13 @@ export async function POST(request: Request) {
   try {
     const form = await request.formData();
     const id = String(form.get("id") || "");
+    const cost = Number(form.get("cost"));
     const price = Number(form.get("price"));
+    const outOfStock = String(form.get("outOfStock")) === "true";
+    const hidden = String(form.get("hidden")) === "true";
     const image = form.get("image");
-    if (!id || !Number.isFinite(price) || price <= 0) {
-      return Response.json({ error: "Precio o producto inválido" }, { status: 400 });
+    if (!id || !Number.isFinite(cost) || cost < 0 || !Number.isFinite(price) || price <= 0) {
+      return Response.json({ error: "Costo, precio o producto inválido" }, { status: 400 });
     }
 
     const catalogResponse = await fetch(`${SUPABASE_URL}/rest/v1/tienda_catalogo?id=eq.catalogo&select=datos`, {
@@ -35,8 +38,16 @@ export async function POST(request: Request) {
     const product = products.find((item: Record<string, unknown>) => String(item.id) === id);
     if (!product) return Response.json({ error: "Producto no encontrado" }, { status: 404 });
 
+    product.costoManualProveedor = Math.round(cost);
+    product.costo = product.costoManualProveedor;
     product.ventaManualProveedor = Math.round(price / 500) * 500;
     product.venta = product.ventaManualProveedor;
+
+    if (product.automaticoProveedor !== true) {
+      product.sinStock = outOfStock;
+      product.ocultoManualProducto = hidden;
+      product.visible = !outOfStock && !hidden;
+    }
 
     if (image instanceof File && image.size > 0) {
       if (!image.type.startsWith("image/") || image.size > 5 * 1024 * 1024) {
