@@ -48,8 +48,25 @@ const worker = {
     return handler.fetch(request, env, ctx);
   },
 
-  async scheduled(_controller: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(ejecutarSincronizacionSegura(env));
+  async scheduled(controller: { cron?: string; scheduledTime?: number }, env: Env): Promise<void> {
+    console.log(
+      `ELECTRO_ROUN_CRON_INICIO ${JSON.stringify({
+        cron: controller?.cron || "desconocido",
+        scheduledTime: controller?.scheduledTime || Date.now(),
+      })}`,
+    );
+
+    try {
+      const resultado = await ejecutarSincronizacionSegura(env);
+      console.log(`ELECTRO_ROUN_CRON_OK ${JSON.stringify(resultado)}`);
+    } catch (error) {
+      console.error(
+        `ELECTRO_ROUN_CRON_ERROR ${String(
+          error instanceof Error ? error.message : error,
+        )}`,
+      );
+      throw error;
+    }
   },
 };
 
