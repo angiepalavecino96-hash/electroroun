@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Product = { id?: string | number; nombre?: string; name?: string; ventaManualProveedor?: number; venta?: number; precio?: number; costo?: number; fotoManualProveedor?: string; foto?: string; imagen?: string; categoria?: string; visible?: boolean; sinStock?: boolean; automaticoProveedor?: boolean; proveedor?: string; proveedorStock?: number; stock?: number };
+type Product = { id?: string | number; nombre?: string; name?: string; costoManualProveedor?: number; ventaManualProveedor?: number; venta?: number; precio?: number; costo?: number; fotoManualProveedor?: string; foto?: string; imagen?: string; categoria?: string; visible?: boolean; sinStock?: boolean; ocultoManualProducto?: boolean; automaticoProveedor?: boolean; proveedor?: string; proveedorStock?: number; stock?: number };
 type View = "catalogo" | "calculadora" | "placas" | "acceso";
 type Session = { authenticated: boolean; role?: "vendedor" | "admin"; name?: string };
 
@@ -21,12 +21,15 @@ function normalize(raw: Product) {
   return {
     id: String(raw.id ?? raw.nombre ?? raw.name ?? Math.random()),
     name: String(raw.nombre ?? raw.name ?? "Producto"),
+    cost: Number(raw.costoManualProveedor ?? raw.costo ?? 0),
     price: base,
     image: raw.fotoManualProveedor ?? raw.foto ?? raw.imagen ?? "",
     category: raw.categoria ?? "Hogar",
     provider: raw.proveedor ?? (raw.automaticoProveedor ? "Proveedor automático" : "Carga manual"),
     stock: Number(raw.proveedorStock ?? raw.stock ?? 0),
     automatic: raw.automaticoProveedor === true,
+    outOfStock: raw.sinStock === true,
+    hidden: raw.ocultoManualProducto === true || raw.visible === false,
     visible: raw.visible !== false && raw.sinStock !== true,
   };
 }
@@ -38,6 +41,8 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("Todos");
   const [cost, setCost] = useState(100000);
+  const [sellerCash, setSellerCash] = useState(150000);
+  const [plateCash, setPlateCash] = useState(150000);
   const [plateName, setPlateName] = useState("Estufa halógena");
   const [access, setAccess] = useState<"vendedor" | "admin">("vendedor");
   const [adminName, setAdminName] = useState("Marce");
@@ -46,8 +51,11 @@ export default function Home() {
   const [loginError, setLoginError] = useState("");
   const [detailProduct, setDetailProduct] = useState<ReturnType<typeof normalize> | null>(null);
   const [editProduct, setEditProduct] = useState<ReturnType<typeof normalize> | null>(null);
+  const [editCost, setEditCost] = useState(0);
   const [editPrice, setEditPrice] = useState(0);
   const [editImage, setEditImage] = useState<File | null>(null);
+  const [editOutOfStock, setEditOutOfStock] = useState(false);
+  const [editHidden, setEditHidden] = useState(false);
   const [editStatus, setEditStatus] = useState("");
   const [consultProduct, setConsultProduct] = useState<ReturnType<typeof normalize> | null>(null);
 
@@ -58,7 +66,7 @@ export default function Home() {
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(data => {
         const list = Array.isArray(data?.[0]?.datos) ? data[0].datos : [];
-        setProducts(list.map(normalize).filter((p: ReturnType<typeof normalize>) => p.visible));
+        setProducts(list.map(normalize));
       })
       .catch(() => setProducts([]))
       .finally(() => setLoading(false));
@@ -106,10 +114,26 @@ export default function Home() {
     window.open(`https://wa.me/?text=${encodeURIComponent(shareMessage(product))}`, "_blank", "noopener,noreferrer");
   }
 
+  function useProductForPlate(product: ReturnType<typeof normalize>) {
+    setPlateName(product.name);
+    if (session.role === "admin") setCost(product.cost);
+    setPlateCash(product.price);
+    setDetailProduct(null);
+    setView("placas");
+  }
+
+  function sharePlate() {
+    const text = `⚡ ELECTRO ROUN ⚡\n${plateName}\n\n💵 Contado: ${money(plateSale)}\n💳 2 cuotas de ${money(round500(plateSale * 1.15 / 2))}\n💳 4 cuotas de ${money(round500(plateSale * 1.55 / 4))}\n💳 6 cuotas de ${money(round500(plateSale * 1.8 / 6))}\n\n🚚 Envíos a domicilio\nConsultanos por disponibilidad.`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+  }
+
   function beginEdit(product: ReturnType<typeof normalize>) {
     setEditProduct(product);
+    setEditCost(product.cost);
     setEditPrice(product.price);
     setEditImage(null);
+    setEditOutOfStock(product.outOfStock);
+    setEditHidden(product.hidden);
     setEditStatus("");
   }
 
@@ -118,7 +142,10 @@ export default function Home() {
     setEditStatus("Guardando cambios…");
     const form = new FormData();
     form.set("id", editProduct.id);
+    form.set("cost", String(editCost));
     form.set("price", String(editPrice));
+    form.set("outOfStock", String(editOutOfStock));
+    form.set("hidden", String(editHidden));
     if (editImage) form.set("image", editImage);
     const response = await fetch("/api/admin/products", { method: "POST", body: form });
     const data = await response.json();
@@ -129,9 +156,10 @@ export default function Home() {
     setEditStatus("");
   }
 
-  const categories = useMemo(() => ["Todos", ...Array.from(new Set(products.map(p => p.category).filter(Boolean))).sort()], [products]);
-  const filtered = useMemo(() => products.filter(p => (category === "Todos" || p.category === category) && p.name.toLowerCase().includes(query.toLowerCase())).slice(0, 60), [products, query, category]);
-  const cash = salePrice(cost || 0);
+  const categories = useMemo(() => ["Todos", ...Array.from(new Set(products.filter(p => session.role === "admin" || p.visible).map(p => p.category).filter(Boolean))).sort()], [products, session.role]);
+  const filtered = useMemo(() => products.filter(p => (session.role === "admin" || p.visible) && (category === "Todos" || p.category === category) && p.name.toLowerCase().includes(query.toLowerCase())).slice(0, 60), [products, query, category, session.role]);
+  const cash = session.role === "admin" ? salePrice(cost || 0) : round500(sellerCash || 0);
+  const plateSale = session.role === "admin" ? salePrice(cost || 0) : round500(plateCash || 0);
   const installments = [{ n: 2, total: cash * 1.15 }, { n: 4, total: cash * 1.55 }, { n: 6, total: cash * 1.8 }];
 
   return (
@@ -157,18 +185,18 @@ export default function Home() {
         <section id="catalog" className="catalog">
           <div className="section-head"><div><span className="eyebrow">NUESTRO CATÁLOGO</span><h2>Encontrá lo que necesitás</h2></div><label>⌕<input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar producto..." /></label></div>
           {!loading && products.length > 0 && <div className="categories" aria-label="Categorías de productos">{categories.map(c => <button key={c} className={category === c ? "selected" : ""} onClick={() => setCategory(c)}>{c}</button>)}</div>}
-          {loading ? <div className="status">Actualizando productos…</div> : filtered.length ? <div className="grid">{filtered.map(p => <article key={p.id} className="card"><div className="photo">{p.image ? <img src={p.image} alt={p.name}/> : <span>ER</span>}</div><small>{p.category}</small><h3>{p.name}</h3><b>{p.price ? money(p.price) : "Consultar"}</b><p>{p.price ? `6 cuotas de ${money(round500(p.price * 1.8 / 6))}` : "Pedinos información"}</p><button onClick={() => setDetailProduct(p)}>Ver precio y cuotas</button>{session.role === "admin" && <button className="admin-edit" onClick={() => beginEdit(p)}>Editar producto</button>}</article>)}</div> : <div className="status">No hay productos en esta categoría o búsqueda.</div>}
+          {loading ? <div className="status">Actualizando productos…</div> : filtered.length ? <div className="grid">{filtered.map(p => <article key={p.id} className={`card${!p.visible ? " card-disabled" : ""}`}><div className="photo">{p.image ? <img src={p.image} alt={p.name}/> : <span>ER</span>}</div><small>{p.category}</small><h3>{p.name}</h3>{session.role === "admin" && !p.visible && <span className="stock-badge">{p.outOfStock ? "SIN STOCK" : "OCULTO"}</span>}<b>{p.price ? money(p.price) : "Consultar"}</b><p>{p.price ? `6 cuotas de ${money(round500(p.price * 1.8 / 6))}` : "Pedinos información"}</p><button onClick={() => setDetailProduct(p)}>Ver precio y cuotas</button>{session.role === "admin" && <button className="admin-edit" onClick={() => beginEdit(p)}>Editar producto</button>}</article>)}</div> : <div className="status">No hay productos en esta categoría o búsqueda.</div>}
         </section>
       </>}
 
-      {detailProduct && <div className="modal-backdrop" onClick={() => setDetailProduct(null)}><div className="product-modal" role="dialog" aria-modal="true" aria-label={`Detalle de ${detailProduct.name}`} onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setDetailProduct(null)}>×</button><div className="product-modal-photo">{detailProduct.image ? <img src={detailProduct.image} alt={detailProduct.name}/> : <span>ER</span>}</div><div className="product-modal-info"><span className="eyebrow">{detailProduct.category}</span><h2>{detailProduct.name}</h2>{detailProduct.price ? <><div className="detail-cash"><small>PRECIO CONTADO</small><strong>{money(detailProduct.price)}</strong></div><div className="detail-installments">{[2,4,6].map(n => { const factor = n === 2 ? 1.15 : n === 4 ? 1.55 : 1.8; return <div key={n}><b>{n} cuotas</b><strong>{money(round500(detailProduct.price * factor / n))}</strong><small>cada una</small></div> })}</div></> : <p>Consultanos para conocer el precio.</p>}{session.authenticated ? <><button className="detail-whatsapp" onClick={() => shareWhatsApp(detailProduct)}>Compartir por WhatsApp</button><small className="detail-note">Se abrirá WhatsApp con la publicación y las cuotas preparadas.</small></> : <><button className="detail-whatsapp" onClick={() => { setConsultProduct(detailProduct); setDetailProduct(null); }}>Consultar por WhatsApp</button><small className="detail-note">Elegís con quién hablar en el siguiente paso.</small></>}</div></div></div>}
+      {detailProduct && <div className="modal-backdrop" onClick={() => setDetailProduct(null)}><div className="product-modal" role="dialog" aria-modal="true" aria-label={`Detalle de ${detailProduct.name}`} onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setDetailProduct(null)}>×</button><div className="product-modal-photo">{detailProduct.image ? <img src={detailProduct.image} alt={detailProduct.name}/> : <span>ER</span>}</div><div className="product-modal-info"><span className="eyebrow">{detailProduct.category}</span><h2>{detailProduct.name}</h2>{detailProduct.price ? <><div className="detail-cash"><small>PRECIO CONTADO</small><strong>{money(detailProduct.price)}</strong></div><div className="detail-installments">{[2,4,6].map(n => { const factor = n === 2 ? 1.15 : n === 4 ? 1.55 : 1.8; return <div key={n}><b>{n} cuotas</b><strong>{money(round500(detailProduct.price * factor / n))}</strong><small>cada una</small></div> })}</div></> : <p>Consultanos para conocer el precio.</p>}{session.authenticated ? <><button className="detail-whatsapp" onClick={() => shareWhatsApp(detailProduct)}>Compartir por WhatsApp</button><button className="detail-plate" onClick={() => useProductForPlate(detailProduct)}>Usar en generador de placas</button><small className="detail-note">El generador copiará el nombre y el costo automáticamente.</small></> : <><button className="detail-whatsapp" onClick={() => { setConsultProduct(detailProduct); setDetailProduct(null); }}>Consultar por WhatsApp</button><small className="detail-note">Elegís con quién hablar en el siguiente paso.</small></>}</div></div></div>}
 
-      {editProduct && session.role === "admin" && <div className="modal-backdrop" onClick={() => setEditProduct(null)}><div className="admin-modal" role="dialog" aria-modal="true" aria-label={`Editar ${editProduct.name}`} onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setEditProduct(null)}>×</button><span className="eyebrow">PANEL DE ADMINISTRACIÓN</span><h2>{editProduct.name}</h2><div className="admin-metadata"><div><small>PROVEEDOR</small><b>{editProduct.provider}</b></div><div><small>STOCK INFORMADO</small><b>{editProduct.stock} unidades</b></div><div><small>ORIGEN</small><b>{editProduct.automatic ? "Automático" : "Manual"}</b></div></div><label className="field">Precio de venta contado<input type="number" value={editPrice} onChange={e => setEditPrice(Number(e.target.value))}/></label><label className="field">Reemplazar fotografía<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setEditImage(e.target.files?.[0] || null)}/></label>{editStatus && <p className="edit-status">{editStatus}</p>}<button className="primary" onClick={saveProduct}>Guardar cambios</button><small className="admin-note">El precio y la foto elegidos manualmente se conservarán en las próximas actualizaciones.</small></div></div>}
+      {editProduct && session.role === "admin" && <div className="modal-backdrop" onClick={() => setEditProduct(null)}><div className="admin-modal" role="dialog" aria-modal="true" aria-label={`Editar ${editProduct.name}`} onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setEditProduct(null)}>×</button><span className="eyebrow">PANEL DE ADMINISTRACIÓN</span><h2>{editProduct.name}</h2><div className="admin-metadata"><div><small>PROVEEDOR</small><b>{editProduct.provider}</b></div><div><small>STOCK INFORMADO</small><b>{editProduct.stock} unidades</b></div><div><small>ORIGEN</small><b>{editProduct.automatic ? "Automático" : "Manual"}</b></div></div><div className="admin-price-grid"><label className="field">Precio de costo<input type="number" value={editCost} onChange={e => setEditCost(Number(e.target.value))}/></label><label className="field">Precio contado<input type="number" value={editPrice} onChange={e => setEditPrice(Number(e.target.value))}/></label></div><label className="image-picker"><span>{editImage ? editImage.name : "Reemplazar imagen"}</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setEditImage(e.target.files?.[0] || null)}/></label>{!editProduct.automatic && <div className="manual-controls"><label><input type="checkbox" checked={editOutOfStock} onChange={e => setEditOutOfStock(e.target.checked)}/><span><b>Marcar sin stock</b><small>Deja de mostrarse en el catálogo público.</small></span></label><label><input type="checkbox" checked={editHidden} onChange={e => setEditHidden(e.target.checked)}/><span><b>Ocultar producto</b><small>Solo seguirá visible para administradores.</small></span></label></div>}{editStatus && <p className="edit-status">{editStatus}</p>}<button className="primary" onClick={saveProduct}>Guardar cambios</button><small className="admin-note">Los cambios manuales se conservarán en las próximas actualizaciones.</small></div></div>}
 
       {consultProduct && <div className="modal-backdrop" onClick={() => setConsultProduct(null)}><div className="contact-modal" onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setConsultProduct(null)}>×</button><img src="/electro-roun-logo.png" alt="Electro Roun"/><span className="eyebrow">CONSULTAR PRODUCTO</span><h2>{consultProduct.name}</h2><p>Elegí con quién querés hablar:</p><button onClick={() => openWhatsApp("5491172356230")}>Consultar con Marce</button><button onClick={() => openWhatsApp("5492271418941")}>Consultar con Cori</button><button className="seller-choice" onClick={() => openWhatsApp()}>Consultar con tu vendedor</button><small>WhatsApp se abrirá con el mensaje del producto preparado.</small></div></div>}
 
       {view === "calculadora" && session.authenticated && <ToolShell title="Calculadora de precios" subtitle={`Sesión: ${session.name}`}>
-        <label className="field">Costo del producto<input type="number" value={cost} onChange={e => setCost(Number(e.target.value))}/></label>
+        {session.role === "admin" ? <label className="field">Costo del producto<input type="number" value={cost} onChange={e => setCost(Number(e.target.value))}/></label> : <label className="field">Precio contado<input type="number" value={sellerCash} onChange={e => setSellerCash(Number(e.target.value))}/></label>}
         <div className="result-main"><small>PRECIO CONTADO</small><strong>{money(cash)}</strong></div>
         <div className="installments">{installments.map(x => <div key={x.n}><b>{x.n} cuotas</b><strong>{money(round500(x.total / x.n))}</strong><small>por cuota</small></div>)}</div>
         <button className="primary" onClick={() => openProtected("placas")}>Armar placa para compartir</button>
@@ -176,9 +204,9 @@ export default function Home() {
 
       {view === "placas" && session.authenticated && <ToolShell title="Generador de placas" subtitle={`Prepará una publicación lista para compartir · ${session.name}`}>
         <label className="field">Nombre del producto<input value={plateName} onChange={e => setPlateName(e.target.value)}/></label>
-        <label className="field">Costo<input type="number" value={cost} onChange={e => setCost(Number(e.target.value))}/></label>
-        <div className="plate"><img src="/electro-roun-logo.png" alt=""/><span>OFERTA ELECTRO ROUN</span><h2>{plateName}</h2><strong>{money(cash)}</strong><p>o 6 cuotas fijas de {money(round500(cash * 1.8 / 6))}</p><footer>ENERGÍA PARA TU HOGAR · SOLUCIONES PARA VOS</footer></div>
-        <button className="primary" onClick={() => window.print()}>Guardar o imprimir placa</button>
+        {session.role === "admin" ? <label className="field">Precio de costo<input type="number" value={cost} onChange={e => setCost(Number(e.target.value))}/></label> : <label className="field">Precio contado<input type="number" value={plateCash} onChange={e => setPlateCash(Number(e.target.value))}/></label>}
+        <div className="plate"><img src="/electro-roun-logo.png" alt=""/><span>OFERTA ELECTRO ROUN</span><h2>{plateName}</h2><strong>{money(plateSale)}</strong><p>o 6 cuotas fijas de {money(round500(plateSale * 1.8 / 6))}</p><footer>ENERGÍA PARA TU HOGAR · SOLUCIONES PARA VOS</footer></div>
+        <button className="primary" onClick={sharePlate}>Compartir placa por WhatsApp</button>
       </ToolShell>}
 
       {view === "acceso" && <ToolShell title="Acceso al equipo" subtitle="Elegí tu tipo de acceso">
