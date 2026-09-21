@@ -66,6 +66,7 @@ export default function Home() {
   const [newImage, setNewImage] = useState<File | null>(null);
   const [newStatus, setNewStatus] = useState("");
   const [consultProduct, setConsultProduct] = useState<ReturnType<typeof normalize> | null>(null);
+  const [sharingProductId, setSharingProductId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${SB_URL}/rest/v1/tienda_catalogo?id=eq.catalogo&select=datos,actualizado`, {
@@ -118,8 +119,31 @@ export default function Home() {
     window.open(target, "_blank", "noopener,noreferrer");
   }
 
-  function shareWhatsApp(product: ReturnType<typeof normalize>) {
-    window.open(`https://wa.me/?text=${encodeURIComponent(shareMessage(product))}`, "_blank", "noopener,noreferrer");
+  async function shareWhatsApp(product: ReturnType<typeof normalize>) {
+    if (!session.authenticated || !session.role) return;
+    setSharingProductId(product.id);
+    try {
+      if (!product.image) throw new Error("Este producto todavía no tiene una foto para compartir.");
+      const response = await fetch(`/api/share-image?id=${encodeURIComponent(product.id)}`);
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "No se pudo preparar la imagen del producto.");
+      }
+      const blob = await response.blob();
+      const extension = blob.type === "image/png" ? "png" : blob.type === "image/webp" ? "webp" : "jpg";
+      const safeName = product.name.replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "producto";
+      const file = new File([blob], `${safeName}.${extension}`, { type: blob.type || "image/jpeg" });
+      if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+        await navigator.share({ title: product.name, text: shareMessage(product), files: [file] });
+        return;
+      }
+      throw new Error("Este dispositivo no permite adjuntar la foto automáticamente. Probalo desde el celular con Chrome actualizado.");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      window.alert(error instanceof Error ? error.message : "No se pudo compartir el producto.");
+    } finally {
+      setSharingProductId(null);
+    }
   }
 
   function useProductForPlate(product: ReturnType<typeof normalize>) {
@@ -212,11 +236,11 @@ export default function Home() {
         <section id="catalog" className="catalog">
           <div className="section-head"><div><span className="eyebrow">NUESTRO CATÁLOGO</span><h2>Encontrá lo que necesitás</h2></div><div className="catalog-actions">{session.role === "admin" && <button onClick={() => setNewProductOpen(true)}>+ Agregar producto manual</button>}<label>⌕<input value={query} onChange={e => setQuery(e.target.value)} placeholder="Buscar producto..." /></label></div></div>
           {!loading && products.length > 0 && <div className="categories" aria-label="Categorías de productos">{categories.map(c => <button key={c} className={category === c ? "selected" : ""} onClick={() => setCategory(c)}>{c}</button>)}</div>}
-          {loading ? <div className="status">Actualizando productos…</div> : filtered.length ? <div className="grid">{filtered.map(p => <article key={p.id} className={`card${!p.visible ? " card-disabled" : ""}`}><div className="photo">{p.image ? <img src={p.image} alt={p.name}/> : <span>ER</span>}</div><small>{p.category}</small><h3>{p.name}</h3>{session.role === "admin" && !p.visible && <span className="stock-badge">{p.outOfStock ? "SIN STOCK" : "OCULTO"}</span>}<b>{p.price ? money(p.price) : "Consultar"}</b><p>{p.price ? `6 cuotas de ${money(round500(p.price * 1.8 / 6))}` : "Pedinos información"}</p><button onClick={() => setDetailProduct(p)}>Ver precio y cuotas</button>{session.role === "admin" && <button className="admin-edit" onClick={() => beginEdit(p)}>Editar producto</button>}</article>)}</div> : <div className="status">No hay productos en esta categoría o búsqueda.</div>}
+          {loading ? <div className="status">Actualizando productos…</div> : filtered.length ? <div className="grid">{filtered.map(p => <article key={p.id} className={`card${!p.visible ? " card-disabled" : ""}`}><div className="photo">{p.image ? <img src={p.image} alt={p.name}/> : <span>ER</span>}</div><small>{p.category}</small><h3>{p.name}</h3>{session.role === "admin" && !p.visible && <span className="stock-badge">{p.outOfStock ? "SIN STOCK" : "OCULTO"}</span>}<b>{p.price ? money(p.price) : "Consultar"}</b><p>{p.price ? `6 cuotas de ${money(round500(p.price * 1.8 / 6))}` : "Pedinos información"}</p><button onClick={() => setDetailProduct(p)}>Ver precio y cuotas</button>{session.authenticated && (session.role === "vendedor" || session.role === "admin") && <button className="share-direct" disabled={sharingProductId === p.id} onClick={() => shareWhatsApp(p)}>{sharingProductId === p.id ? "Preparando foto…" : "Compartir por WhatsApp"}</button>}{session.role === "admin" && <button className="admin-edit" onClick={() => beginEdit(p)}>Editar producto</button>}</article>)}</div> : <div className="status">No hay productos en esta categoría o búsqueda.</div>}
         </section>
       </>}
 
-      {detailProduct && <div className="modal-backdrop" onClick={() => setDetailProduct(null)}><div className="product-modal" role="dialog" aria-modal="true" aria-label={`Detalle de ${detailProduct.name}`} onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setDetailProduct(null)}>×</button><div className="product-modal-photo">{detailProduct.image ? <img src={detailProduct.image} alt={detailProduct.name}/> : <span>ER</span>}</div><div className="product-modal-info"><span className="eyebrow">{detailProduct.category}</span><h2>{detailProduct.name}</h2>{detailProduct.price ? <><div className="detail-cash"><small>PRECIO CONTADO</small><strong>{money(detailProduct.price)}</strong></div><div className="detail-installments">{[2,4,6].map(n => { const factor = n === 2 ? 1.15 : n === 4 ? 1.55 : 1.8; return <div key={n}><b>{n} cuotas</b><strong>{money(round500(detailProduct.price * factor / n))}</strong><small>cada una</small></div> })}</div></> : <p>Consultanos para conocer el precio.</p>}{session.authenticated ? <><button className="detail-whatsapp" onClick={() => shareWhatsApp(detailProduct)}>Compartir por WhatsApp</button><button className="detail-plate" onClick={() => useProductForPlate(detailProduct)}>Usar en generador de placas</button><small className="detail-note">El generador copiará el nombre y el costo automáticamente.</small></> : <><button className="detail-whatsapp" onClick={() => { setConsultProduct(detailProduct); setDetailProduct(null); }}>Consultar por WhatsApp</button><small className="detail-note">Elegís con quién hablar en el siguiente paso.</small></>}</div></div></div>}
+      {detailProduct && <div className="modal-backdrop" onClick={() => setDetailProduct(null)}><div className="product-modal" role="dialog" aria-modal="true" aria-label={`Detalle de ${detailProduct.name}`} onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setDetailProduct(null)}>×</button><div className="product-modal-photo">{detailProduct.image ? <img src={detailProduct.image} alt={detailProduct.name}/> : <span>ER</span>}</div><div className="product-modal-info"><span className="eyebrow">{detailProduct.category}</span><h2>{detailProduct.name}</h2>{detailProduct.price ? <><div className="detail-cash"><small>PRECIO CONTADO</small><strong>{money(detailProduct.price)}</strong></div><div className="detail-installments">{[2,4,6].map(n => { const factor = n === 2 ? 1.15 : n === 4 ? 1.55 : 1.8; return <div key={n}><b>{n} cuotas</b><strong>{money(round500(detailProduct.price * factor / n))}</strong><small>cada una</small></div> })}</div></> : <p>Consultanos para conocer el precio.</p>}{session.authenticated && (session.role === "vendedor" || session.role === "admin") ? <><button className="detail-whatsapp" disabled={sharingProductId === detailProduct.id} onClick={() => shareWhatsApp(detailProduct)}>{sharingProductId === detailProduct.id ? "Preparando foto…" : "Compartir por WhatsApp"}</button><button className="detail-plate" onClick={() => useProductForPlate(detailProduct)}>Usar en generador de placas</button><small className="detail-note">Se comparte la foto vigente, el contado y las cuotas.</small></> : <><button className="detail-whatsapp" onClick={() => { setConsultProduct(detailProduct); setDetailProduct(null); }}>Consultar por WhatsApp</button><small className="detail-note">Elegís con quién hablar en el siguiente paso.</small></>}</div></div></div>}
 
       {editProduct && session.role === "admin" && <div className="modal-backdrop" onClick={() => setEditProduct(null)}><div className="admin-modal" role="dialog" aria-modal="true" aria-label={`Editar ${editProduct.name}`} onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setEditProduct(null)}>×</button><span className="eyebrow">PANEL DE ADMINISTRACIÓN</span><h2>{editProduct.name}</h2><div className="admin-metadata"><div><small>PROVEEDOR</small><b>{editProduct.provider}</b></div><div><small>STOCK INFORMADO</small><b>{editProduct.stock} unidades</b></div><div><small>ORIGEN</small><b>{editProduct.automatic ? "Automático" : "Manual"}</b></div></div><div className="admin-price-grid"><label className="field">Precio de costo<input type="number" value={editCost} onChange={e => setEditCost(Number(e.target.value))}/></label><label className="field">Precio contado<input type="number" value={editPrice} onChange={e => setEditPrice(Number(e.target.value))}/></label></div><label className="image-picker"><span>{editImage ? editImage.name : "Reemplazar imagen"}</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setEditImage(e.target.files?.[0] || null)}/></label>{!editProduct.automatic && <div className="manual-controls"><label><input type="checkbox" checked={editOutOfStock} onChange={e => setEditOutOfStock(e.target.checked)}/><span><b>Marcar sin stock</b><small>Deja de mostrarse en el catálogo público.</small></span></label><label><input type="checkbox" checked={editHidden} onChange={e => setEditHidden(e.target.checked)}/><span><b>Ocultar producto</b><small>Solo seguirá visible para administradores.</small></span></label></div>}{editStatus && <p className="edit-status">{editStatus}</p>}<button className="primary" onClick={saveProduct}>Guardar cambios</button><small className="admin-note">Los cambios manuales se conservarán en las próximas actualizaciones.</small></div></div>}
 
